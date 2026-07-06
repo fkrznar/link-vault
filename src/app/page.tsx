@@ -1,8 +1,22 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { User } from '@supabase/supabase-js'
 import Link from 'next/link'
+// Import the vector icons from lucide-react
+import { 
+  Settings, 
+  LogOut, 
+  PlusCircle, 
+  Search, 
+  Folder, 
+  Bookmark, 
+  Heart, 
+  ExternalLink,
+  X,
+  Globe,
+  Lightbulb
+} from 'lucide-react'
 
 export default function Home() {
   // --- AUTH STATE ---
@@ -17,6 +31,11 @@ export default function Home() {
   const [loading, setLoading] = useState(true)
   const [feedView, setFeedView] = useState<'all' | 'saved'>('all')
   
+  // --- ADVANCED SEARCH STATE ---
+  const [textInput, setTextInput] = useState('')       
+  const [searchTags, setSearchTags] = useState<string[]>([]) 
+  const inputRef = useRef<HTMLInputElement>(null)
+
   // --- FORM STATE ---
   const [title, setTitle] = useState('')
   const [url, setUrl] = useState('')
@@ -45,39 +64,60 @@ export default function Home() {
     setLoading(false)
   }
 
-  const trackClick = async (id: number, currentClicks: number) => {
-    setLinks(prev => prev.map(l => l.id === id ? { ...l, clicks: (l.clicks || 0) + 1 } : l))
-    await supabase.from('links').update({ clicks: (currentClicks || 0) + 1 }).eq('id', id)
+  const trackView = async (id: number, currentViews: number) => {
+    const nextViews = (currentViews || 0) + 1
+    setLinks(prev => prev.map(l => l.id === id ? { ...l, views: nextViews } : l))
+    await supabase.from('links').update({ views: nextViews }).eq('id', id)
   }
 
-  // --- TOGGLE LIKE HANDLER ---
   const handleToggleLike = async (linkId: number, alreadyLiked: boolean) => {
     if (!user) return alert('Please log in to like posts!')
-
     if (alreadyLiked) {
-      // Unlike: Delete row
       await supabase.from('likes').delete().eq('link_id', linkId).eq('user_id', user.id)
       setLinks(prev => prev.map(l => l.id === linkId ? { ...l, likes: l.likes.filter((lk: any) => lk.user_id !== user.id) } : l))
     } else {
-      // Like: Insert row
       await supabase.from('likes').insert([{ link_id: linkId, user_id: user.id }])
       setLinks(prev => prev.map(l => l.id === linkId ? { ...l, likes: [...l.likes, { user_id: user.id }] } : l))
     }
   }
 
-  // --- TOGGLE SAVE HANDLER ---
   const handleToggleSave = async (linkId: number, alreadySaved: boolean) => {
     if (!user) return alert('Please log in to save posts!')
-
     if (alreadySaved) {
-      // Unsave
       await supabase.from('saves').delete().eq('link_id', linkId).eq('user_id', user.id)
       setLinks(prev => prev.map(l => l.id === linkId ? { ...l, saves: l.saves.filter((sv: any) => sv.user_id !== user.id) } : l))
     } else {
-      // Save
       await supabase.from('saves').insert([{ link_id: linkId, user_id: user.id }])
       setLinks(prev => prev.map(l => l.id === linkId ? { ...l, saves: [...l.saves, { user_id: user.id }] } : l))
     }
+  }
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value
+    if (value.endsWith(' ')) {
+      const words = value.trim().split(/\s+/)
+      const lastWord = words[words.length - 1]
+
+      if (lastWord.startsWith('#') && lastWord.length > 1) {
+        const cleanTag = lastWord.slice(1).toLowerCase()
+        if (!searchTags.includes(cleanTag)) {
+          setSearchTags(prev => [...prev, cleanTag])
+        }
+        setTextInput(value.substring(0, value.lastIndexOf('#')).trim())
+        return
+      }
+    }
+    setTextInput(value)
+  }
+
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' && textInput === '' && searchTags.length > 0) {
+      setSearchTags(prev => prev.slice(0, -1))
+    }
+  }
+
+  const removeSearchTag = (tagToRemove: string) => {
+    setSearchTags(prev => prev.filter(t => t !== tagToRemove))
   }
 
   const handleAuth = async (e: React.FormEvent) => {
@@ -110,19 +150,36 @@ export default function Home() {
     }
   }
 
-  // Filter links array locally based on chosen feed view
-  const displayedLinks = feedView === 'all' 
-    ? links 
-    : links.filter(link => link.saves?.some((s: any) => s.user_id === user?.id))
+  const displayedLinks = links
+    .filter(link => {
+      if (feedView === 'all') return true
+      return link.saves?.some((s: any) => s.user_id === user?.id)
+    })
+    .filter(link => {
+      if (searchTags.length > 0) {
+        const postTags = link.tags?.map((t: string) => t.toLowerCase()) || []
+        const matchesAllTags = searchTags.every(tag => postTags.includes(tag))
+        if (!matchesAllTags) return false
+      }
+      if (textInput.trim()) {
+        const cleanQuery = textInput.toLowerCase().trim()
+        return link.title?.toLowerCase().includes(cleanQuery)
+      }
+      return true
+    })
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100 p-8">
       <header className="max-w-4xl mx-auto mb-12 flex justify-between items-center bg-gray-800 p-4 rounded-xl border border-gray-700 shadow-md">
-        <h1 className="text-2xl font-extrabold bg-gradient-to-r from-blue-400 to-teal-400 bg-clip-text text-transparent">Cloud Link Vault</h1>
+        <h1 className="text-2xl font-extrabold bg-gradient-to-r from-blue-400 to-teal-400 bg-clip-text text-transparent">CloudsLinked</h1>
         {user && (
           <div className="flex items-center gap-4">
-            <Link href="/account" className="text-sm bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg transition font-medium">⚙️ My Profile</Link>
-            <button onClick={() => supabase.auth.signOut()} className="text-xs text-gray-400 hover:text-white">Log Out</button>
+            <Link href="/account" className="text-sm bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg transition font-medium flex items-center gap-1.5">
+              <Settings className="w-4 h-4" /> My Profile
+            </Link>
+            <button onClick={() => supabase.auth.signOut()} className="text-xs text-gray-400 hover:text-white flex items-center gap-1">
+              <LogOut className="w-3.5 h-3.5" /> Log Out
+            </button>
           </div>
         )}
       </header>
@@ -141,7 +198,9 @@ export default function Home() {
           </section>
         ) : (
           <section className="bg-gray-800 p-6 rounded-xl border border-gray-700 shadow-xl">
-            <h2 className="text-xl font-bold text-white mb-4">➕ Share a Resource</h2>
+            <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+              <PlusCircle className="w-5 h-5 text-blue-400" /> Share a Resource
+            </h2>
             <form onSubmit={handleCreatePost} className="space-y-4">
               {formError && <div className="text-red-400 text-sm">{formError}</div>}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -149,8 +208,8 @@ export default function Home() {
                 <input type="url" placeholder="URL *" value={url} onChange={e => setUrl(e.target.value)} className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-sm text-white focus:outline-none" required />
               </div>
               <textarea placeholder="Description" value={description} onChange={e => setDescription(e.target.value)} rows={2} className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-sm text-white focus:outline-none resize-none" />
-              <input type="text" placeholder="Tags (separated by commas)" value={tagsInput} onChange={e => setTagsInput(e.target.value)} className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-sm text-white focus:outline-none" />
-              <button type="submit" disabled={submitting} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-2 rounded-lg text-sm transition font-medium">{submitting ? 'Uploading...' : 'Post to Vault 🚀'}</button>
+              <input type="text" placeholder="Tags (separated by commas, e.g. pdf, assignment, design)" value={tagsInput} onChange={e => setTagsInput(e.target.value)} className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-sm text-white focus:outline-none" />
+              <button type="submit" disabled={submitting} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-2 rounded-lg text-sm transition font-medium">{submitting ? 'Uploading...' : 'Post'}</button>
             </form>
           </section>
         )}
@@ -158,36 +217,75 @@ export default function Home() {
         <hr className="border-gray-800" />
 
         {/* --- VIEW FEED CONTROLS --- */}
-        <section>
-          <div className="flex justify-between items-center mb-6">
+        <section className="space-y-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <h2 className="text-xl font-bold text-white flex items-center gap-2">
-              <span>📂</span> {feedView === 'all' ? 'Explorable Vault Items' : 'My Bookmarked Vault Items'}
+              <Folder className="w-5 h-5 text-teal-400" /> {feedView === 'all' ? 'Files' : 'My Bookmarked Files'}
             </h2>
             
-            {/* Toggle Feed Tabs */}
-            {user && (
-              <div className="flex bg-gray-800 p-1 rounded-lg border border-gray-700 text-xs font-medium">
-                <button 
-                  onClick={() => setFeedView('all')} 
-                  className={`px-3 py-1.5 rounded-md transition ${feedView === 'all' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
-                >
-                  🌐 All Posts
-                </button>
-                <button 
-                  onClick={() => setFeedView('saved')} 
-                  className={`px-3 py-1.5 rounded-md transition ${feedView === 'saved' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
-                >
-                  🔖 Saved ({links.filter(l => l.saves?.some((s: any) => s.user_id === user.id)).length})
-                </button>
+            <div className="flex flex-1 md:justify-end items-center gap-3 max-w-2xl w-full ml-auto">
+              
+              {/* --- ADVANCED SMART SEARCH CONTAINER --- */}
+              <div 
+                className="flex flex-wrap items-center gap-1.5 flex-1 bg-gray-800 border border-gray-700 hover:border-gray-600 rounded-lg px-2.5 py-1.5 focus-within:border-blue-500 transition cursor-text relative pl-8"
+                onClick={() => inputRef.current?.focus()}
+              >
+                <Search className="w-4 h-4 text-gray-500 absolute left-2.5 top-2.5" />
+
+                {searchTags.map((tag, idx) => (
+                  <span key={idx} className="flex items-center gap-1 bg-blue-600/30 text-blue-400 border border-blue-500/40 text-[10px] font-mono pl-2 pr-1 py-0.5 rounded-md shadow-sm">
+                    #{tag}
+                    <button 
+                      type="button" 
+                      onClick={(e) => { e.stopPropagation(); removeSearchTag(tag); }} 
+                      className="hover:bg-blue-500/40 text-blue-300 w-3.5 h-3.5 rounded flex items-center justify-center"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </span>
+                ))}
+                
+                <input 
+                  ref={inputRef}
+                  type="text" 
+                  placeholder={searchTags.length === 0 ? "Type title or #tags with a space..." : ""} 
+                  value={textInput}
+                  onChange={handleInputChange}
+                  onKeyDown={handleInputKeyDown}
+                  className="flex-1 min-w-[120px] text-xs bg-transparent text-white placeholder-gray-500 focus:outline-none"
+                />
               </div>
-            )}
+
+              {user && (
+                <div className="flex bg-gray-800 p-1 rounded-lg border border-gray-700 text-[11px] font-medium shrink-0">
+                  <button
+                    onClick={() => setFeedView('all')}
+                    className={`px-2.5 py-1.5 rounded-md transition flex items-center gap-1 ${feedView === 'all' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
+                  >
+                    <Globe className="w-3.5 h-3.5" /> All
+                  </button>
+                  <button
+                    onClick={() => setFeedView('saved')}
+                    className={`px-2.5 py-1.5 rounded-md transition flex items-center gap-1 ${feedView === 'saved' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
+                  >
+                    <Bookmark className="w-3.5 h-3.5" /> Saved ({links.filter(l => l.saves?.some((s: any) => s.user_id === user.id)).length})
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="bg-gray-800/40 border border-gray-800 p-3 rounded-lg text-xs text-gray-400 space-y-1 font-medium">
+            <span className="text-gray-200 flex items-center gap-1.5"><Lightbulb className="w-4 h-4 text-amber-400" /> How to query multiple filters at once:</span>
+            <p>Type your tags using a hashtag and follow them with a <kbd className="bg-gray-900 border border-gray-700 px-1 py-0.5 rounded text-gray-300 font-mono text-[10px]">Space</kbd> to turn them into bubbles, then type any regular title text.</p>
+            <p className="text-blue-400 font-mono text-[11px] mt-1">Example: #pdf #assignment calculus</p>
           </div>
 
           {loading ? (
             <p className="text-center text-gray-400 animate-pulse py-12">Loading feed...</p>
           ) : displayedLinks.length === 0 ? (
             <p className="text-center text-gray-500 py-12 bg-gray-800/30 rounded-xl border border-gray-800">
-              {feedView === 'all' ? 'The vault is currently empty.' : 'You have not saved any items yet.'}
+              ⚡ No matches found for your search combo.
             </p>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -197,20 +295,16 @@ export default function Home() {
                 const likesCount = link.likes?.length || 0
 
                 return (
-                  <div key={link.id} className="bg-gray-800 rounded-xl border border-gray-700 p-4 flex flex-col justify-between h-full space-y-4 shadow-md relative group">
+                  <div key={link.id} className="bg-gray-800 rounded-xl border border-gray-700 p-4 flex flex-col justify-between h-full space-y-4 shadow-md relative group hover:border-gray-600 transition">
                     
-                    {/* Save Badge Button in Upper Corner */}
                     {user && (
                       <button 
                         onClick={() => handleToggleSave(link.id, isSaved)}
-                        className={`absolute top-3 right-3 text-sm p-1.5 rounded-lg border transition duration-200 z-10 ${
-                          isSaved 
-                            ? 'bg-blue-900/40 border-blue-500 text-blue-400' 
-                            : 'bg-gray-900/50 border-gray-700 text-gray-400 hover:text-white hover:border-gray-500'
+                        className={`absolute top-3 right-3 p-1.5 rounded-lg border transition duration-200 z-10 ${
+                          isSaved ? 'bg-blue-900/40 border-blue-500 text-blue-400' : 'bg-gray-900/50 border-gray-700 text-gray-400 hover:text-white hover:border-gray-500'
                         }`}
-                        title={isSaved ? "Unsave Post" : "Save Post"}
                       >
-                        {isSaved ? '🔖' : '📥'}
+                        <Bookmark className="w-4 h-4" fill={isSaved ? "currentColor" : "none"} />
                       </button>
                     )}
 
@@ -224,26 +318,34 @@ export default function Home() {
                       <div>
                         <h3 className="text-lg font-bold text-white truncate">{link.title}</h3>
                         <p className="text-gray-400 text-xs line-clamp-2 mt-1">{link.description || 'No description.'}</p>
+                        
+                        {link.tags && link.tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-2.5">
+                            {link.tags.map((tag: string, i: number) => (
+                              <span key={i} className="bg-gray-900 text-blue-400 border border-gray-700/60 rounded text-[10px] px-1.5 py-0.5 font-mono">
+                                #{tag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
 
                     <div className="space-y-2 border-t border-gray-700/40 pt-2">
-                      {/* Social Metric Counters Row */}
                       <div className="flex items-center justify-between text-xs text-gray-500 px-1">
-                        <span>🔥 {link.clicks || 0} clicks</span>
+                        <span className="font-medium">{link.views || 0} views</span>
                         
-                        {/* Interactive Like Component */}
                         <button 
                           onClick={() => handleToggleLike(link.id, isLiked)}
                           className={`flex items-center gap-1 font-medium transition ${isLiked ? 'text-red-400' : 'text-gray-500 hover:text-red-300'}`}
                         >
-                          <span>{isLiked ? '❤️' : '🤍'}</span>
+                          <Heart className="w-4 h-4" fill={isLiked ? "currentColor" : "none"} />
                           <span>{likesCount}</span>
                         </button>
                       </div>
 
-                      <a href={link.url} target="_blank" rel="noopener noreferrer" onClick={() => trackClick(link.id, link.clicks)} className="block w-full text-center bg-gray-700 hover:bg-gray-600 text-white text-sm py-2 rounded-lg transition font-medium">
-                        Open Files ↗
+                      <a href={link.url} target="_blank" rel="noopener noreferrer" onClick={() => trackView(link.id, link.views)} className="flex items-center justify-center gap-1.5 w-full bg-gray-700 hover:bg-gray-600 text-white text-sm py-2 rounded-lg transition font-medium">
+                        Open Files <ExternalLink className="w-3.5 h-3.5" />
                       </a>
                     </div>
                   </div>
