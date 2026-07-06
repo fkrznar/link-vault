@@ -16,7 +16,7 @@ import {
   Globe,
   Lightbulb,
   Trash2,
-  Flag // Imported Flag icon
+  Flag
 } from 'lucide-react'
 
 export default function Home() {
@@ -27,6 +27,7 @@ export default function Home() {
   const [password, setPassword] = useState('')
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login')
   const [authError, setAuthError] = useState('')
+  const [authMessage, setAuthMessage] = useState('') // Verification email success state
 
   // --- POSTS STATE ---
   const [links, setLinks] = useState<any[]>([])
@@ -53,6 +54,7 @@ export default function Home() {
   const [reporting, setReporting] = useState(false)
 
   useEffect(() => {
+    // Check initial user and load profile directly from database
     supabase.auth.getUser().then(({ data: { user } }) => {
       setUser(user)
       if (user) {
@@ -62,6 +64,7 @@ export default function Home() {
       }
     })
 
+    // Listen to changes in auth state dynamically
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       const activeUser = session?.user ?? null
       setUser(activeUser)
@@ -126,7 +129,7 @@ export default function Home() {
     else setLinks(prev => prev.filter(l => l.id !== linkId))
   }
 
-  // --- SUBMIT REPORT TO DATABASE ---
+  // --- SUBMIT COMPLAINT/REPORT MECHANISM ---
   const handleSubmitReport = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!user || !selectedReportLinkId) return alert('Please log in to report content!')
@@ -154,6 +157,34 @@ export default function Home() {
     }
   }
 
+  // --- EMAIL AND AUTH SIGNUP WITH CONFIRMATION WAITING ---
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setAuthError('')
+    setAuthMessage('')
+
+    if (authMode === 'signup') {
+      const { data, error } = await supabase.auth.signUp({ 
+        email, 
+        password,
+        options: {
+          emailRedirectTo: window.location.origin
+        }
+      })
+
+      if (error) {
+        setAuthError(error.message)
+      } else if (data.user && data.user.identities?.length === 0) {
+        setAuthError('This email is already registered. Please check your inbox for the confirmation link.')
+      } else {
+        setAuthMessage('Verification email sent! Please check your inbox to activate your account.')
+      }
+    } else {
+      const { error } = await supabase.auth.signInWithPassword({ email, password })
+      if (error) setAuthError(error.message)
+    }
+  }
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value
     if (value.endsWith(' ')) {
@@ -178,19 +209,6 @@ export default function Home() {
 
   const removeSearchTag = (tagToRemove: string) => {
     setSearchTags(prev => prev.filter(t => t !== tagToRemove))
-  }
-
-  const handleAuth = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setAuthError('')
-    if (authMode === 'signup') {
-      const { error } = await supabase.auth.signUp({ email, password })
-      if (error) setAuthError(error.message)
-      else alert('Account created! You can now log in.')
-    } else {
-      const { error } = await supabase.auth.signInWithPassword({ email, password })
-      if (error) setAuthError(error.message)
-    }
   }
 
   const handleCreatePost = async (e: React.FormEvent) => {
@@ -230,6 +248,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100 p-8 relative">
+      {/* Synchronization Configured Header */}
       <header className="max-w-4xl mx-auto mb-12 flex justify-between items-center bg-gray-800 p-4 rounded-xl border border-gray-700 shadow-md">
         <h1 className="text-2xl font-extrabold bg-gradient-to-r from-blue-400 to-teal-400 bg-clip-text text-transparent">CloudsLinked</h1>
         {user && (
@@ -251,11 +270,13 @@ export default function Home() {
             <h2 className="text-lg font-bold mb-4 text-white uppercase text-center tracking-wider">{authMode === 'login' ? 'Sign In' : 'Create Account'}</h2>
             <form onSubmit={handleAuth} className="space-y-4">
               {authError && <div className="text-red-400 text-xs bg-red-900/20 p-2 rounded border border-red-500/20">{authError}</div>}
+              {authMessage && <div className="text-emerald-400 text-xs bg-emerald-900/20 p-3 rounded border border-emerald-500/20 font-medium">{authMessage}</div>}
+              
               <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-sm text-white focus:outline-none" required />
               <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-sm text-white focus:outline-none" required />
               <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white py-2 rounded-lg text-sm transition font-medium">{authMode === 'login' ? 'Log In' : 'Sign Up'}</button>
             </form>
-            <button onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')} className="w-full text-center text-xs text-blue-400 mt-4 hover:underline">{authMode === 'login' ? "Need an account? Sign up" : "Have an account? Log in"}</button>
+            <button onClick={() => { setAuthMode(authMode === 'login' ? 'signup' : 'login'); setAuthError(''); setAuthMessage(''); }} className="w-full text-center text-xs text-blue-400 mt-4 hover:underline">{authMode === 'login' ? "Need an account? Sign up" : "Have an account? Log in"}</button>
           </section>
         ) : (
           <section className="bg-gray-800 p-6 rounded-xl border border-gray-700 shadow-xl">
@@ -325,7 +346,7 @@ export default function Home() {
                   <div key={link.id} className="bg-gray-800 rounded-xl border border-gray-700 p-4 flex flex-col justify-between h-full space-y-4 shadow-md relative group hover:border-gray-600 transition">
                     
                     <div className="absolute top-3 right-3 flex items-center gap-1.5 z-10">
-                      {/* Report Flag Button (Shows for anyone logged in, on items that aren't their own) */}
+                      {/* Flag Button */}
                       {user && !isOwnPost && (
                         <button 
                           onClick={() => setSelectedReportLinkId(link.id)}
@@ -386,22 +407,13 @@ export default function Home() {
               <h3 className="text-lg font-bold text-white flex items-center gap-2">
                 <Flag className="w-5 h-5 text-amber-400" /> Flag Resource
               </h3>
-              <button 
-                onClick={() => setSelectedReportLinkId(null)}
-                className="text-gray-400 hover:text-white transition p-1 rounded-lg bg-gray-900/50"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <button onClick={() => setSelectedReportLinkId(null)} className="text-gray-400 hover:text-white transition p-1 rounded-lg bg-gray-900/50"><X className="w-4 h-4" /></button>
             </div>
 
             <form onSubmit={handleSubmitReport} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Reason for Report</label>
-                <select 
-                  value={reportReason} 
-                  onChange={(e) => setReportReason(e.target.value)}
-                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500 transition"
-                >
+                <select value={reportReason} onChange={(e) => setReportReason(e.target.value)} className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500 transition">
                   <option value="stolen content">Stolen Content</option>
                   <option value="inappropriate content">Inappropriate Content</option>
                   <option value="malware">Malware / Virus</option>
@@ -411,31 +423,12 @@ export default function Home() {
 
               <div>
                 <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Additional Details</label>
-                <textarea 
-                  required
-                  rows={4}
-                  placeholder="Please specify why this content should be reviewed..." 
-                  value={reportDetails}
-                  onChange={(e) => setReportDetails(e.target.value)}
-                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500 transition resize-none"
-                />
+                <textarea required rows={4} placeholder="Please specify why this content should be reviewed..." value={reportDetails} onChange={(e) => setReportDetails(e.target.value)} className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500 transition resize-none" />
               </div>
 
               <div className="flex items-center gap-3 pt-2">
-                <button 
-                  type="button" 
-                  onClick={() => setSelectedReportLinkId(null)}
-                  className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg text-sm font-medium transition"
-                >
-                  Cancel
-                </button>
-                <button 
-                  type="submit" 
-                  disabled={reporting}
-                  className="flex-1 bg-red-600 hover:bg-red-500 disabled:bg-red-800 text-white py-2 rounded-lg text-sm font-medium transition shadow-md"
-                >
-                  {reporting ? 'Filing Report...' : 'Submit Flag'}
-                </button>
+                <button type="button" onClick={() => setSelectedReportLinkId(null)} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg text-sm font-medium transition">Cancel</button>
+                <button type="submit" disabled={reporting} className="flex-1 bg-red-600 hover:bg-red-500 disabled:bg-red-800 text-white py-2 rounded-lg text-sm font-medium transition shadow-md">{reporting ? 'Filing Report...' : 'Submit Flag'}</button>
               </div>
             </form>
           </div>
