@@ -3,7 +3,6 @@ import { useEffect, useState, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { User } from '@supabase/supabase-js'
 import Link from 'next/link'
-// Import the vector icons from lucide-react
 import { 
   Settings, 
   LogOut, 
@@ -15,7 +14,8 @@ import {
   ExternalLink,
   X,
   Globe,
-  Lightbulb
+  Lightbulb,
+  Trash2 // Added trash icon for deletion mechanics
 } from 'lucide-react'
 
 export default function Home() {
@@ -44,11 +44,41 @@ export default function Home() {
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState('')
 
+  const [currentProfile, setCurrentProfile] = useState<any>(null)
+
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => setUser(user))
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null)
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setUser(user)
+      if (user) {
+        // Fetch the actual username and avatar for the logged-in account
+        supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single()
+          .then(({ data }) => {
+            if (data) setCurrentProfile(data)
+          })
+      }
     })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      const activeUser = session?.user ?? null
+      setUser(activeUser)
+      if (activeUser) {
+        supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', activeUser.id)
+          .single()
+          .then(({ data }) => {
+            if (data) setCurrentProfile(data)
+          })
+      } else {
+        setCurrentProfile(null)
+      }
+    })
+
     fetchLinks()
     return () => subscription.unsubscribe()
   }, [])
@@ -89,6 +119,24 @@ export default function Home() {
     } else {
       await supabase.from('saves').insert([{ link_id: linkId, user_id: user.id }])
       setLinks(prev => prev.map(l => l.id === linkId ? { ...l, saves: [...l.saves, { user_id: user.id }] } : l))
+    }
+  }
+
+  // --- GLOBAL POST DELETION HANDLER ---
+  const handleDeletePost = async (linkId: number) => {
+    const confirmDelete = window.confirm("Are you 100% sure you want to delete this file from the vault permanently?")
+    if (!confirmDelete) return
+
+    const { error } = await supabase
+      .from('links')
+      .delete()
+      .eq('id', linkId)
+
+    if (error) {
+      alert(`Error deleting post: ${error.message}`)
+    } else {
+      // Remove item instantly from local state array
+      setLinks(prev => prev.filter(l => l.id !== linkId))
     }
   }
 
@@ -170,13 +218,25 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100 p-8">
+      {/* Updated Branding: CloudsLinked */}
       <header className="max-w-4xl mx-auto mb-12 flex justify-between items-center bg-gray-800 p-4 rounded-xl border border-gray-700 shadow-md">
         <h1 className="text-2xl font-extrabold bg-gradient-to-r from-blue-400 to-teal-400 bg-clip-text text-transparent">CloudsLinked</h1>
         {user && (
           <div className="flex items-center gap-4">
-            <Link href="/account" className="text-sm bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg transition font-medium flex items-center gap-1.5">
-              <Settings className="w-4 h-4" /> My Profile
+            <Link
+              href={`/user/${user.id}`}
+              className="flex items-center gap-2 group bg-gray-900/50 hover:bg-gray-700/50 border border-gray-700 rounded-lg px-3 py-1.5 transition text-sm font-medium"
+            >
+              <img
+                src={currentProfile?.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg'}
+                alt="My Profile"
+                className="w-5 h-5 rounded-full object-cover border border-gray-600 group-hover:border-blue-400 transition"
+              />
+              <span className="text-gray-300 group-hover:text-blue-400 transition">
+                @{currentProfile?.username || 'user'}
+              </span>
             </Link>
+
             <button onClick={() => supabase.auth.signOut()} className="text-xs text-gray-400 hover:text-white flex items-center gap-1">
               <LogOut className="w-3.5 h-3.5" /> Log Out
             </button>
@@ -209,7 +269,7 @@ export default function Home() {
               </div>
               <textarea placeholder="Description" value={description} onChange={e => setDescription(e.target.value)} rows={2} className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-sm text-white focus:outline-none resize-none" />
               <input type="text" placeholder="Tags (separated by commas, e.g. pdf, assignment, design)" value={tagsInput} onChange={e => setTagsInput(e.target.value)} className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-sm text-white focus:outline-none" />
-              <button type="submit" disabled={submitting} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-2 rounded-lg text-sm transition font-medium">{submitting ? 'Uploading...' : 'Post'}</button>
+              <button type="submit" disabled={submitting} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-2 rounded-lg text-sm transition font-medium">{submitting ? 'Uploading...' : 'Post to Vault'}</button>
             </form>
           </section>
         )}
@@ -219,13 +279,14 @@ export default function Home() {
         {/* --- VIEW FEED CONTROLS --- */}
         <section className="space-y-6">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            {/* Updated Header Texts: Files & My Bookmarked Files */}
             <h2 className="text-xl font-bold text-white flex items-center gap-2">
               <Folder className="w-5 h-5 text-teal-400" /> {feedView === 'all' ? 'Files' : 'My Bookmarked Files'}
             </h2>
             
             <div className="flex flex-1 md:justify-end items-center gap-3 max-w-2xl w-full ml-auto">
               
-              {/* --- ADVANCED SMART SEARCH CONTAINER --- */}
+              {/* --- SEARCH FIELD CONTAINER --- */}
               <div 
                 className="flex flex-wrap items-center gap-1.5 flex-1 bg-gray-800 border border-gray-700 hover:border-gray-600 rounded-lg px-2.5 py-1.5 focus-within:border-blue-500 transition cursor-text relative pl-8"
                 onClick={() => inputRef.current?.focus()}
@@ -258,16 +319,10 @@ export default function Home() {
 
               {user && (
                 <div className="flex bg-gray-800 p-1 rounded-lg border border-gray-700 text-[11px] font-medium shrink-0">
-                  <button
-                    onClick={() => setFeedView('all')}
-                    className={`px-2.5 py-1.5 rounded-md transition flex items-center gap-1 ${feedView === 'all' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
-                  >
+                  <button onClick={() => setFeedView('all')} className={`px-2.5 py-1.5 rounded-md transition flex items-center gap-1 ${feedView === 'all' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}>
                     <Globe className="w-3.5 h-3.5" /> All
                   </button>
-                  <button
-                    onClick={() => setFeedView('saved')}
-                    className={`px-2.5 py-1.5 rounded-md transition flex items-center gap-1 ${feedView === 'saved' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}
-                  >
+                  <button onClick={() => setFeedView('saved')} className={`px-2.5 py-1.5 rounded-md transition flex items-center gap-1 ${feedView === 'saved' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}>
                     <Bookmark className="w-3.5 h-3.5" /> Saved ({links.filter(l => l.saves?.some((s: any) => s.user_id === user.id)).length})
                   </button>
                 </div>
@@ -275,8 +330,11 @@ export default function Home() {
             </div>
           </div>
 
+          {/* --- SEARCH INSTRUCTIONS CARD (Clean Lucide Upgrade) --- */}
           <div className="bg-gray-800/40 border border-gray-800 p-3 rounded-lg text-xs text-gray-400 space-y-1 font-medium">
-            <span className="text-gray-200 flex items-center gap-1.5"><Lightbulb className="w-4 h-4 text-amber-400" /> How to query multiple filters at once:</span>
+            <span className="text-gray-200 flex items-center gap-1.5">
+              <Lightbulb className="w-4 h-4 text-amber-400" /> How to query multiple filters at once:
+            </span>
             <p>Type your tags using a hashtag and follow them with a <kbd className="bg-gray-900 border border-gray-700 px-1 py-0.5 rounded text-gray-300 font-mono text-[10px]">Space</kbd> to turn them into bubbles, then type any regular title text.</p>
             <p className="text-blue-400 font-mono text-[11px] mt-1">Example: #pdf #assignment calculus</p>
           </div>
@@ -292,31 +350,47 @@ export default function Home() {
               {displayedLinks.map((link) => {
                 const isLiked = link.likes?.some((l: any) => l.user_id === user?.id) || false
                 const isSaved = link.saves?.some((s: any) => s.user_id === user?.id) || false
+                const isOwnPost = user && link.user_id === user.id
                 const likesCount = link.likes?.length || 0
 
                 return (
                   <div key={link.id} className="bg-gray-800 rounded-xl border border-gray-700 p-4 flex flex-col justify-between h-full space-y-4 shadow-md relative group hover:border-gray-600 transition">
                     
-                    {user && (
-                      <button 
-                        onClick={() => handleToggleSave(link.id, isSaved)}
-                        className={`absolute top-3 right-3 p-1.5 rounded-lg border transition duration-200 z-10 ${
-                          isSaved ? 'bg-blue-900/40 border-blue-500 text-blue-400' : 'bg-gray-900/50 border-gray-700 text-gray-400 hover:text-white hover:border-gray-500'
+                    {/* Action Layer Context Buttons */}
+                    <div className="absolute top-3 right-3 flex items-center gap-1.5 z-10">
+                      {/* Conditional Red Trash Delete Button for Own Posts */}
+                      {isOwnPost && (
+                        <button 
+                          onClick={() => handleDeletePost(link.id)}
+                          className="bg-gray-900/50 border border-gray-700 text-gray-400 hover:text-red-400 hover:border-red-500/50 p-1.5 rounded-lg transition duration-200"
+                          title="Delete File Permanently"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+
+                      {/* Bookmark Icon */}
+                      {user && (
+                        <button 
+                          onClick={() => handleToggleSave(link.id, isSaved)}
+                          className={`p-1.5 rounded-lg border transition duration-200 ${
+                            isSaved ? 'bg-blue-900/40 border-blue-500 text-blue-400' : 'bg-gray-900/50 border-gray-700 text-gray-400 hover:text-white hover:border-gray-500'
                         }`}
-                      >
-                        <Bookmark className="w-4 h-4" fill={isSaved ? "currentColor" : "none"} />
-                      </button>
-                    )}
+                        >
+                          <Bookmark className="w-4 h-4" fill={isSaved ? "currentColor" : "none"} />
+                        </button>
+                      )}
+                    </div>
 
                     <div className="space-y-3">
                       {link.profiles && (
-                        <Link href={`/user/${link.user_id}`} className="flex items-center gap-2 group border-b border-gray-700/50 pb-2 max-w-[80%]">
+                        <Link href={`/user/${link.user_id}`} className="flex items-center gap-2 group border-b border-gray-700/50 pb-2 max-w-[70%]">
                           <img src={link.profiles.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg'} alt="Avatar" className="w-6 h-6 rounded-full bg-gray-900 object-cover" />
                           <span className="text-xs font-semibold text-gray-300 group-hover:text-blue-400 transition truncate">@{link.profiles.username || 'user'}</span>
                         </Link>
                       )}
                       <div>
-                        <h3 className="text-lg font-bold text-white truncate">{link.title}</h3>
+                        <h3 className="text-lg font-bold text-white truncate pr-16">{link.title}</h3>
                         <p className="text-gray-400 text-xs line-clamp-2 mt-1">{link.description || 'No description.'}</p>
                         
                         {link.tags && link.tags.length > 0 && (
