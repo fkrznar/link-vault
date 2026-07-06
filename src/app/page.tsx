@@ -269,8 +269,19 @@ export default function Home() {
           <section className="max-w-md mx-auto bg-gray-800 p-6 rounded-xl border border-gray-700 shadow-xl">
             <h2 className="text-lg font-bold mb-4 text-white uppercase text-center tracking-wider">{authMode === 'login' ? 'Sign In' : 'Create Account'}</h2>
             <form onSubmit={handleAuth} className="space-y-4">
-              {authError && <div className="text-red-400 text-xs bg-red-900/20 p-2 rounded border border-red-500/20">{authError}</div>}
-              {authMessage && <div className="text-emerald-400 text-xs bg-emerald-900/20 p-3 rounded border border-emerald-500/20 font-medium">{authMessage}</div>}
+              {/* Fix: Turn the error into a string if it's an object */}
+              {authError && (
+                <div className="text-red-400 text-xs bg-red-900/20 p-2 rounded border border-red-500/20">
+                  {typeof authError === 'object' ? JSON.stringify(authError) : String(authError)}
+                </div>
+              )}
+
+              {/* Fix: Turn the success message into a string if it's an object */}
+              {authMessage && (
+                <div className="text-emerald-400 text-xs bg-emerald-900/20 p-3 rounded border border-emerald-500/20 font-medium">
+                  {typeof authMessage === 'object' ? JSON.stringify(authMessage) : String(authMessage)}
+                </div>
+              )}
               
               <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-sm text-white focus:outline-none" required />
               <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-sm text-white focus:outline-none" required />
