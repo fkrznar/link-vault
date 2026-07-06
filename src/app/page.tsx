@@ -15,12 +15,14 @@ import {
   X,
   Globe,
   Lightbulb,
-  Trash2 // Added trash icon for deletion mechanics
+  Trash2,
+  Flag // Imported Flag icon
 } from 'lucide-react'
 
 export default function Home() {
   // --- AUTH STATE ---
   const [user, setUser] = useState<User | null>(null)
+  const [currentProfile, setCurrentProfile] = useState<any>(null)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login')
@@ -44,21 +46,19 @@ export default function Home() {
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState('')
 
-  const [currentProfile, setCurrentProfile] = useState<any>(null)
+  // --- REPORT MODAL STATE ---
+  const [selectedReportLinkId, setSelectedReportLinkId] = useState<number | null>(null)
+  const [reportReason, setReportReason] = useState('stolen content')
+  const [reportDetails, setReportDetails] = useState('')
+  const [reporting, setReporting] = useState(false)
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       setUser(user)
       if (user) {
-        // Fetch the actual username and avatar for the logged-in account
-        supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', user.id)
-          .single()
-          .then(({ data }) => {
-            if (data) setCurrentProfile(data)
-          })
+        supabase.from('profiles').select('*').eq('id', user.id).single().then(({ data }) => {
+          if (data) setCurrentProfile(data)
+        })
       }
     })
 
@@ -66,14 +66,9 @@ export default function Home() {
       const activeUser = session?.user ?? null
       setUser(activeUser)
       if (activeUser) {
-        supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', activeUser.id)
-          .single()
-          .then(({ data }) => {
-            if (data) setCurrentProfile(data)
-          })
+        supabase.from('profiles').select('*').eq('id', activeUser.id).single().then(({ data }) => {
+          if (data) setCurrentProfile(data)
+        })
       } else {
         setCurrentProfile(null)
       }
@@ -122,21 +117,40 @@ export default function Home() {
     }
   }
 
-  // --- GLOBAL POST DELETION HANDLER ---
   const handleDeletePost = async (linkId: number) => {
     const confirmDelete = window.confirm("Are you 100% sure you want to delete this file from the vault permanently?")
     if (!confirmDelete) return
 
-    const { error } = await supabase
-      .from('links')
-      .delete()
-      .eq('id', linkId)
+    const { error } = await supabase.from('links').delete().eq('id', linkId)
+    if (error) alert(`Error deleting post: ${error.message}`)
+    else setLinks(prev => prev.filter(l => l.id !== linkId))
+  }
 
+  // --- SUBMIT REPORT TO DATABASE ---
+  const handleSubmitReport = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!user || !selectedReportLinkId) return alert('Please log in to report content!')
+    setReporting(true)
+
+    const { error } = await supabase
+      .from('reports')
+      .insert([
+        {
+          link_id: selectedReportLinkId,
+          user_id: user.id,
+          reason: reportReason,
+          details: reportDetails
+        }
+      ])
+
+    setReporting(false)
     if (error) {
-      alert(`Error deleting post: ${error.message}`)
+      alert(`Failed to submit report: ${error.message}`)
     } else {
-      // Remove item instantly from local state array
-      setLinks(prev => prev.filter(l => l.id !== linkId))
+      alert('Thank you. This item has been flagged for administrator review.')
+      setSelectedReportLinkId(null)
+      setReportDetails('')
+      setReportReason('stolen content')
     }
   }
 
@@ -148,9 +162,7 @@ export default function Home() {
 
       if (lastWord.startsWith('#') && lastWord.length > 1) {
         const cleanTag = lastWord.slice(1).toLowerCase()
-        if (!searchTags.includes(cleanTag)) {
-          setSearchTags(prev => [...prev, cleanTag])
-        }
+        if (!searchTags.includes(cleanTag)) setSearchTags(prev => [...prev, cleanTag])
         setTextInput(value.substring(0, value.lastIndexOf('#')).trim())
         return
       }
@@ -217,26 +229,15 @@ export default function Home() {
     })
 
   return (
-    <div className="min-h-screen bg-gray-900 text-gray-100 p-8">
-      {/* Updated Branding: CloudsLinked */}
+    <div className="min-h-screen bg-gray-900 text-gray-100 p-8 relative">
       <header className="max-w-4xl mx-auto mb-12 flex justify-between items-center bg-gray-800 p-4 rounded-xl border border-gray-700 shadow-md">
         <h1 className="text-2xl font-extrabold bg-gradient-to-r from-blue-400 to-teal-400 bg-clip-text text-transparent">CloudsLinked</h1>
         {user && (
           <div className="flex items-center gap-4">
-            <Link
-              href={`/user/${user.id}`}
-              className="flex items-center gap-2 group bg-gray-900/50 hover:bg-gray-700/50 border border-gray-700 rounded-lg px-3 py-1.5 transition text-sm font-medium"
-            >
-              <img
-                src={currentProfile?.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg'}
-                alt="My Profile"
-                className="w-5 h-5 rounded-full object-cover border border-gray-600 group-hover:border-blue-400 transition"
-              />
-              <span className="text-gray-300 group-hover:text-blue-400 transition">
-                @{currentProfile?.username || 'user'}
-              </span>
+            <Link href={`/user/${user.id}`} className="flex items-center gap-2 group bg-gray-900/50 hover:bg-gray-700/50 border border-gray-700 rounded-lg px-3 py-1.5 transition text-sm font-medium">
+              <img src={currentProfile?.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg'} alt="My Profile" className="w-5 h-5 rounded-full object-cover border border-gray-600 group-hover:border-blue-400 transition" />
+              <span className="text-gray-300 group-hover:text-blue-400 transition">@{currentProfile?.username || 'user'}</span>
             </Link>
-
             <button onClick={() => supabase.auth.signOut()} className="text-xs text-gray-400 hover:text-white flex items-center gap-1">
               <LogOut className="w-3.5 h-3.5" /> Log Out
             </button>
@@ -268,7 +269,7 @@ export default function Home() {
                 <input type="url" placeholder="URL *" value={url} onChange={e => setUrl(e.target.value)} className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-sm text-white focus:outline-none" required />
               </div>
               <textarea placeholder="Description" value={description} onChange={e => setDescription(e.target.value)} rows={2} className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-sm text-white focus:outline-none resize-none" />
-              <input type="text" placeholder="Tags (separated by commas, e.g. pdf, assignment, design)" value={tagsInput} onChange={e => setTagsInput(e.target.value)} className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-sm text-white focus:outline-none" />
+              <input type="text" placeholder="Tags (separated by commas)" value={tagsInput} onChange={e => setTagsInput(e.target.value)} className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-sm text-white focus:outline-none" />
               <button type="submit" disabled={submitting} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-2 rounded-lg text-sm transition font-medium">{submitting ? 'Uploading...' : 'Post to Vault'}</button>
             </form>
           </section>
@@ -276,75 +277,42 @@ export default function Home() {
 
         <hr className="border-gray-800" />
 
-        {/* --- VIEW FEED CONTROLS --- */}
         <section className="space-y-6">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            {/* Updated Header Texts: Files & My Bookmarked Files */}
             <h2 className="text-xl font-bold text-white flex items-center gap-2">
               <Folder className="w-5 h-5 text-teal-400" /> {feedView === 'all' ? 'Files' : 'My Bookmarked Files'}
             </h2>
             
             <div className="flex flex-1 md:justify-end items-center gap-3 max-w-2xl w-full ml-auto">
-              
-              {/* --- SEARCH FIELD CONTAINER --- */}
-              <div 
-                className="flex flex-wrap items-center gap-1.5 flex-1 bg-gray-800 border border-gray-700 hover:border-gray-600 rounded-lg px-2.5 py-1.5 focus-within:border-blue-500 transition cursor-text relative pl-8"
-                onClick={() => inputRef.current?.focus()}
-              >
+              <div className="flex flex-wrap items-center gap-1.5 flex-1 bg-gray-800 border border-gray-700 hover:border-gray-600 rounded-lg px-2.5 py-1.5 focus-within:border-blue-500 transition cursor-text relative pl-8" onClick={() => inputRef.current?.focus()}>
                 <Search className="w-4 h-4 text-gray-500 absolute left-2.5 top-2.5" />
-
                 {searchTags.map((tag, idx) => (
                   <span key={idx} className="flex items-center gap-1 bg-blue-600/30 text-blue-400 border border-blue-500/40 text-[10px] font-mono pl-2 pr-1 py-0.5 rounded-md shadow-sm">
                     #{tag}
-                    <button 
-                      type="button" 
-                      onClick={(e) => { e.stopPropagation(); removeSearchTag(tag); }} 
-                      className="hover:bg-blue-500/40 text-blue-300 w-3.5 h-3.5 rounded flex items-center justify-center"
-                    >
-                      <X className="w-2.5 h-2.5" />
-                    </button>
+                    <button type="button" onClick={(e) => { e.stopPropagation(); removeSearchTag(tag); }} className="hover:bg-blue-500/40 text-blue-300 w-3.5 h-3.5 rounded flex items-center justify-center"><X className="w-2.5 h-2.5" /></button>
                   </span>
                 ))}
-                
-                <input 
-                  ref={inputRef}
-                  type="text" 
-                  placeholder={searchTags.length === 0 ? "Type title or #tags with a space..." : ""} 
-                  value={textInput}
-                  onChange={handleInputChange}
-                  onKeyDown={handleInputKeyDown}
-                  className="flex-1 min-w-[120px] text-xs bg-transparent text-white placeholder-gray-500 focus:outline-none"
-                />
+                <input ref={inputRef} type="text" placeholder={searchTags.length === 0 ? "Type title or #tags with a space..." : ""} value={textInput} onChange={handleInputChange} onKeyDown={handleInputKeyDown} className="flex-1 min-w-[120px] text-xs bg-transparent text-white placeholder-gray-500 focus:outline-none" />
               </div>
 
               {user && (
                 <div className="flex bg-gray-800 p-1 rounded-lg border border-gray-700 text-[11px] font-medium shrink-0">
-                  <button onClick={() => setFeedView('all')} className={`px-2.5 py-1.5 rounded-md transition flex items-center gap-1 ${feedView === 'all' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}>
-                    <Globe className="w-3.5 h-3.5" /> All
-                  </button>
-                  <button onClick={() => setFeedView('saved')} className={`px-2.5 py-1.5 rounded-md transition flex items-center gap-1 ${feedView === 'saved' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}>
-                    <Bookmark className="w-3.5 h-3.5" /> Saved ({links.filter(l => l.saves?.some((s: any) => s.user_id === user.id)).length})
-                  </button>
+                  <button onClick={() => setFeedView('all')} className={`px-2.5 py-1.5 rounded-md transition flex items-center gap-1 ${feedView === 'all' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}><Globe className="w-3.5 h-3.5" /> All</button>
+                  <button onClick={() => setFeedView('saved')} className={`px-2.5 py-1.5 rounded-md transition flex items-center gap-1 ${feedView === 'saved' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}><Bookmark className="w-3.5 h-3.5" /> Saved ({links.filter(l => l.saves?.some((s: any) => s.user_id === user.id)).length})</button>
                 </div>
               )}
             </div>
           </div>
 
-          {/* --- SEARCH INSTRUCTIONS CARD (Clean Lucide Upgrade) --- */}
           <div className="bg-gray-800/40 border border-gray-800 p-3 rounded-lg text-xs text-gray-400 space-y-1 font-medium">
-            <span className="text-gray-200 flex items-center gap-1.5">
-              <Lightbulb className="w-4 h-4 text-amber-400" /> How to query multiple filters at once:
-            </span>
+            <span className="text-gray-200 flex items-center gap-1.5"><Lightbulb className="w-4 h-4 text-amber-400" /> How to query multiple filters at once:</span>
             <p>Type your tags using a hashtag and follow them with a <kbd className="bg-gray-900 border border-gray-700 px-1 py-0.5 rounded text-gray-300 font-mono text-[10px]">Space</kbd> to turn them into bubbles, then type any regular title text.</p>
-            <p className="text-blue-400 font-mono text-[11px] mt-1">Example: #pdf #assignment calculus</p>
           </div>
 
           {loading ? (
             <p className="text-center text-gray-400 animate-pulse py-12">Loading feed...</p>
           ) : displayedLinks.length === 0 ? (
-            <p className="text-center text-gray-500 py-12 bg-gray-800/30 rounded-xl border border-gray-800">
-              ⚡ No matches found for your search combo.
-            </p>
+            <p className="text-center text-gray-500 py-12 bg-gray-800/30 rounded-xl border border-gray-800">⚡ No matches found.</p>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {displayedLinks.map((link) => {
@@ -356,29 +324,24 @@ export default function Home() {
                 return (
                   <div key={link.id} className="bg-gray-800 rounded-xl border border-gray-700 p-4 flex flex-col justify-between h-full space-y-4 shadow-md relative group hover:border-gray-600 transition">
                     
-                    {/* Action Layer Context Buttons */}
                     <div className="absolute top-3 right-3 flex items-center gap-1.5 z-10">
-                      {/* Conditional Red Trash Delete Button for Own Posts */}
-                      {isOwnPost && (
+                      {/* Report Flag Button (Shows for anyone logged in, on items that aren't their own) */}
+                      {user && !isOwnPost && (
                         <button 
-                          onClick={() => handleDeletePost(link.id)}
-                          className="bg-gray-900/50 border border-gray-700 text-gray-400 hover:text-red-400 hover:border-red-500/50 p-1.5 rounded-lg transition duration-200"
-                          title="Delete File Permanently"
+                          onClick={() => setSelectedReportLinkId(link.id)}
+                          className="bg-gray-900/50 border border-gray-700 text-gray-400 hover:text-amber-400 hover:border-amber-500/50 p-1.5 rounded-lg transition duration-200"
+                          title="Report Content"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Flag className="w-4 h-4" />
                         </button>
                       )}
 
-                      {/* Bookmark Icon */}
+                      {isOwnPost && (
+                        <button onClick={() => handleDeletePost(link.id)} className="bg-gray-900/50 border border-gray-700 text-gray-400 hover:text-red-400 hover:border-red-500/50 p-1.5 rounded-lg transition duration-200"><Trash2 className="w-4 h-4" /></button>
+                      )}
+
                       {user && (
-                        <button 
-                          onClick={() => handleToggleSave(link.id, isSaved)}
-                          className={`p-1.5 rounded-lg border transition duration-200 ${
-                            isSaved ? 'bg-blue-900/40 border-blue-500 text-blue-400' : 'bg-gray-900/50 border-gray-700 text-gray-400 hover:text-white hover:border-gray-500'
-                        }`}
-                        >
-                          <Bookmark className="w-4 h-4" fill={isSaved ? "currentColor" : "none"} />
-                        </button>
+                        <button onClick={() => handleToggleSave(link.id, isSaved)} className={`p-1.5 rounded-lg border transition duration-200 ${isSaved ? 'bg-blue-900/40 border-blue-500 text-blue-400' : 'bg-gray-900/50 border-gray-700 text-gray-400 hover:text-white hover:border-gray-500'}`}><Bookmark className="w-4 h-4" fill={isSaved ? "currentColor" : "none"} /></button>
                       )}
                     </div>
 
@@ -390,16 +353,11 @@ export default function Home() {
                         </Link>
                       )}
                       <div>
-                        <h3 className="text-lg font-bold text-white truncate pr-16">{link.title}</h3>
+                        <h3 className="text-lg font-bold text-white truncate pr-20">{link.title}</h3>
                         <p className="text-gray-400 text-xs line-clamp-2 mt-1">{link.description || 'No description.'}</p>
-                        
                         {link.tags && link.tags.length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-2.5">
-                            {link.tags.map((tag: string, i: number) => (
-                              <span key={i} className="bg-gray-900 text-blue-400 border border-gray-700/60 rounded text-[10px] px-1.5 py-0.5 font-mono">
-                                #{tag}
-                              </span>
-                            ))}
+                            {link.tags.map((tag: string, i: number) => <span key={i} className="bg-gray-900 text-blue-400 border border-gray-700/60 rounded text-[10px] px-1.5 py-0.5 font-mono">#{tag}</span>)}
                           </div>
                         )}
                       </div>
@@ -408,19 +366,9 @@ export default function Home() {
                     <div className="space-y-2 border-t border-gray-700/40 pt-2">
                       <div className="flex items-center justify-between text-xs text-gray-500 px-1">
                         <span className="font-medium">{link.views || 0} views</span>
-                        
-                        <button 
-                          onClick={() => handleToggleLike(link.id, isLiked)}
-                          className={`flex items-center gap-1 font-medium transition ${isLiked ? 'text-red-400' : 'text-gray-500 hover:text-red-300'}`}
-                        >
-                          <Heart className="w-4 h-4" fill={isLiked ? "currentColor" : "none"} />
-                          <span>{likesCount}</span>
-                        </button>
+                        <button onClick={() => handleToggleLike(link.id, isLiked)} className={`flex items-center gap-1 font-medium transition ${isLiked ? 'text-red-400' : 'text-gray-500 hover:text-red-300'}`}><Heart className="w-4 h-4" fill={isLiked ? "currentColor" : "none"} /><span>{likesCount}</span></button>
                       </div>
-
-                      <a href={link.url} target="_blank" rel="noopener noreferrer" onClick={() => trackView(link.id, link.views)} className="flex items-center justify-center gap-1.5 w-full bg-gray-700 hover:bg-gray-600 text-white text-sm py-2 rounded-lg transition font-medium">
-                        Open Files <ExternalLink className="w-3.5 h-3.5" />
-                      </a>
+                      <a href={link.url} target="_blank" rel="noopener noreferrer" onClick={() => trackView(link.id, link.views)} className="flex items-center justify-center gap-1.5 w-full bg-gray-700 hover:bg-gray-600 text-white text-sm py-2 rounded-lg transition font-medium">Open Files <ExternalLink className="w-3.5 h-3.5" /></a>
                     </div>
                   </div>
                 )
@@ -429,6 +377,70 @@ export default function Home() {
           )}
         </section>
       </main>
+
+      {/* --- REPORT DIALOG MODAL LAYOUT --- */}
+      {selectedReportLinkId && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 border border-gray-700 rounded-xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex justify-between items-center border-b border-gray-700 pb-3">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Flag className="w-5 h-5 text-amber-400" /> Flag Resource
+              </h3>
+              <button 
+                onClick={() => setSelectedReportLinkId(null)}
+                className="text-gray-400 hover:text-white transition p-1 rounded-lg bg-gray-900/50"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitReport} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Reason for Report</label>
+                <select 
+                  value={reportReason} 
+                  onChange={(e) => setReportReason(e.target.value)}
+                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500 transition"
+                >
+                  <option value="stolen content">Stolen Content</option>
+                  <option value="inappropriate content">Inappropriate Content</option>
+                  <option value="malware">Malware / Virus</option>
+                  <option value="other">Other Issue</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Additional Details</label>
+                <textarea 
+                  required
+                  rows={4}
+                  placeholder="Please specify why this content should be reviewed..." 
+                  value={reportDetails}
+                  onChange={(e) => setReportDetails(e.target.value)}
+                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500 transition resize-none"
+                />
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <button 
+                  type="button" 
+                  onClick={() => setSelectedReportLinkId(null)}
+                  className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg text-sm font-medium transition"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={reporting}
+                  className="flex-1 bg-red-600 hover:bg-red-500 disabled:bg-red-800 text-white py-2 rounded-lg text-sm font-medium transition shadow-md"
+                >
+                  {reporting ? 'Filing Report...' : 'Submit Flag'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
