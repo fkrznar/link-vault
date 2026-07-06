@@ -400,6 +400,7 @@ export default function Home() {
                         <span className="font-medium">{link.views || 0} views</span>
                         <button onClick={() => handleToggleLike(link.id, isLiked)} className={`flex items-center gap-1 font-medium transition ${isLiked ? 'text-red-400' : 'text-gray-500 hover:text-red-300'}`}><Heart className="w-4 h-4" fill={isLiked ? "currentColor" : "none"} /><span>{likesCount}</span></button>
                       </div>
+                      <p className="px-1 text-[10px] text-gray-500 break-all leading-relaxed">{link.url}</p>
                       <a href={link.url} target="_blank" rel="noopener noreferrer" onClick={() => trackView(link.id, link.views)} className="flex items-center justify-center gap-1.5 w-full bg-gray-700 hover:bg-gray-600 text-white text-sm py-2 rounded-lg transition font-medium">Open Files <ExternalLink className="w-3.5 h-3.5" /></a>
                     </div>
                   </div>
